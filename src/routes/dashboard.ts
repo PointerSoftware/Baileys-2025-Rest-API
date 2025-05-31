@@ -5,7 +5,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 import { authMiddleware } from '../middleware/auth';
 import { DatabaseService } from '../services/DatabaseService';
 import { whatsAppService } from '../app';
-import { ApiResponse } from '../types/api';
+import { ApiResponse } from '../Types/api';
 
 const router = Router();
 const dbService = new DatabaseService();
@@ -47,8 +47,8 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
 router.get('/sessions', authMiddleware, asyncHandler(async (req, res) => {
   const sessions = await dbService.getUserSessions(req.user!.id);
   
-  const sessionMetrics = sessions.map(session => {
-    const liveSession = whatsAppService.getSession(session.sessionId);
+  const sessionMetrics = await Promise.all(sessions.map(async session => {
+    const liveSession = await whatsAppService.getSession(session.sessionId);
     return {
       sessionId: session.sessionId,
       status: liveSession?.status || session.status,
@@ -57,7 +57,7 @@ router.get('/sessions', authMiddleware, asyncHandler(async (req, res) => {
       lastSeen: session.lastSeen,
       createdAt: session.createdAt
     };
-  });
+  }));
 
   res.json({
     success: true,

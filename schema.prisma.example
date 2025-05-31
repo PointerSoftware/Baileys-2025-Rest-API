@@ -1,11 +1,12 @@
-// This is your Prisma schema file for MySQL
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -137,7 +138,7 @@ model Group {
 model Webhook {
   id        String      @id @default(cuid())
   url       String
-  events    String
+  events    String[]
   secret    String?
   isActive  Boolean     @default(true)
   retries   Int         @default(0)

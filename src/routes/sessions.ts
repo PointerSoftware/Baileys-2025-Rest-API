@@ -4,7 +4,8 @@ import { handleValidationErrors, asyncHandler } from '../middleware/errorHandler
 import { sessionMiddleware } from '../middleware/auth';
 import { whatsAppService } from '../app';
 import { DatabaseService } from '../services/DatabaseService';
-import { ApiResponse, SessionStatus } from '../types/api';
+import { ApiResponse, SessionStatus } from '../Types/api';
+import { setTimeout } from 'timers/promises';
 
 const router = Router();
 const dbService = new DatabaseService();
@@ -23,17 +24,17 @@ const dbService = new DatabaseService();
  */
 router.get('/', asyncHandler(async (req, res) => {
   const sessions = await dbService.getUserSessions(req.user!.id);
-  
+
   // Enhance with real-time status from WhatsApp service
-  const enhancedSessions = sessions.map(session => {
-    const liveSession = whatsAppService.getSession(session.sessionId);
+  const enhancedSessions = await Promise.all(sessions.map(async session => {
+    const liveSession = await whatsAppService.getSession(session.sessionId);
     return {
       ...session,
       liveStatus: liveSession?.status || SessionStatus.DISCONNECTED,
       qrCode: liveSession?.qrCode,
       pairingCode: liveSession?.pairingCode
     };
-  });
+  }));
 
   res.json({
     success: true,
@@ -87,11 +88,31 @@ router.post('/', [
   }
 
   // Create session
-  const session = await whatsAppService.createSession(sessionId, req.user!.id, usePairingCode);
+  await whatsAppService.createSession(sessionId, req.user!.id, usePairingCode);
 
+  // Tambahkan delay agar QR/pairing code sempat terisi
+  await setTimeout(10000); // delay 2 detik, bisa disesuaikan
+
+  // Ambil session terbaru dari database
+  const dbSession = await dbService.getSession(sessionId);
+
+  if (usePairingCode == true) {
+    return res.status(201).json({
+      success: true,
+      data: {
+        status: dbSession?.status
+      },
+      qrCode: dbSession?.pairingCode,
+      message: 'Session created successfully',
+      timestamp: new Date().toISOString()
+    } as ApiResponse);
+  }
   res.status(201).json({
     success: true,
-    data: session,
+    data: {
+      status: dbSession?.status
+    },
+    qrCode: dbSession?.qrCode,
     message: 'Session created successfully',
     timestamp: new Date().toISOString()
   } as ApiResponse);
@@ -121,7 +142,7 @@ router.get('/:sessionId', [
   param('sessionId').notEmpty()
 ], sessionMiddleware, handleValidationErrors, asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
-  
+
   const dbSession = await dbService.getSession(sessionId);
   const liveSession = await whatsAppService.getSession(sessionId);
 
@@ -205,9 +226,9 @@ router.get('/:sessionId/qr', [
   param('sessionId').notEmpty()
 ], sessionMiddleware, handleValidationErrors, asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
-  
+
   const session = await whatsAppService.getSession(sessionId);
-  
+
   if (!session || !session.qrCode) {
     return res.status(404).json({
       success: false,
@@ -309,7 +330,7 @@ router.get('/:sessionId/status', [
   param('sessionId').notEmpty()
 ], sessionMiddleware, handleValidationErrors, asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
-  
+
   const session = await whatsAppService.getSession(sessionId);
   const dbSession = await dbService.getSession(sessionId);
 

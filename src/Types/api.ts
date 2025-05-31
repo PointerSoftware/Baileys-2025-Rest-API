@@ -24,6 +24,7 @@ export interface WhatsAppSession {
   lastSeen?: Date;
   authData?: any;
   metadata?: any;
+  qrRetryCount?: number;
 }
 
 export enum SessionStatus {
@@ -39,6 +40,7 @@ export enum SessionStatus {
 export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
+  qrcode?: string;
   error?: string;
   message?: string;
   timestamp: string;

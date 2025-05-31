@@ -1,15 +1,15 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
-import { AuthenticatedRequest, ApiError } from '../types/api';
+import { AuthenticatedRequest } from '../Types/api';
 
 // Extend the AuthenticatedRequest interface to include startTime
-declare module '../types/api' {
+declare module '../Types/api' {
   interface AuthenticatedRequest {
     startTime?: number;
   }
 }
-import { logger } from '../utils/apiLogger';
+import { logger } from '../Utils/apiLogger';
 
 const prisma = new PrismaClient();
 
@@ -20,8 +20,8 @@ export const authMiddleware = async (
 ) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '') ||
-                  req.header('X-API-Key') ||
-                  req.query.apiKey as string;
+      req.header('X-API-Key') ||
+      req.query.apiKey as string;
 
     if (!token) {
       return res.status(401).json({
@@ -191,7 +191,7 @@ export const responseMiddleware = (
 ) => {
   const originalSend = res.send;
 
-  res.send = function(data) {
+  res.send = function (data) {
     // Calculate duration
     const duration = req.startTime ? Date.now() - req.startTime : 0;
 

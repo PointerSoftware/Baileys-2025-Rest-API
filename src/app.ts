@@ -12,7 +12,7 @@ import dotenv from 'dotenv';
 
 import { errorHandler } from './middleware/errorHandler';
 import { authMiddleware } from './middleware/auth';
-import { logger } from './utils/apiLogger';
+import { logger } from './Utils/apiLogger';
 import { DatabaseService } from './services/DatabaseService';
 import { WhatsAppService } from './services/WhatsAppService';
 
@@ -145,7 +145,6 @@ const databaseService = new DatabaseService();
 const whatsAppService = new WhatsAppService(io);
 
 // Export for use in routes
-export { whatsAppService };
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
