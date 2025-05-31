@@ -4,7 +4,7 @@ import { handleValidationErrors, asyncHandler } from '../middleware/errorHandler
 import { sessionMiddleware } from '../middleware/auth';
 import { whatsAppService } from '../app';
 import { DatabaseService } from '../services/DatabaseService';
-import { ApiResponse } from '../types/api';
+import { ApiResponse } from '../Types/api';
 
 const router = Router();
 const dbService = new DatabaseService();
@@ -80,7 +80,8 @@ router.post('/:sessionId/:chatId/archive', [
   }
 
   try {
-    await session.socket.chatModify({ archive: true }, chatId);
+    // You must provide lastMessages for archive/unarchive actions
+    await session.socket.chatModify({ archive: true, lastMessages: [] }, chatId);
 
     // Update in database
     await dbService.upsertChat({
@@ -143,7 +144,7 @@ router.post('/:sessionId/:chatId/unarchive', [
   }
 
   try {
-    await session.socket.chatModify({ archive: false }, chatId);
+    await session.socket.chatModify({ archive: false, lastMessages: [] }, chatId);
 
     // Update in database
     await dbService.upsertChat({
@@ -332,7 +333,7 @@ router.delete('/:sessionId/:chatId/delete', [
   }
 
   try {
-    await session.socket.chatModify({ delete: true }, chatId);
+    await session.socket.chatModify({ delete: true, lastMessages: [] }, chatId);
 
     res.json({
       success: true,
@@ -387,7 +388,7 @@ router.post('/:sessionId/:chatId/mark-read', [
   }
 
   try {
-    await session.socket.chatModify({ markRead: true }, chatId);
+    await session.socket.chatModify({ markRead: true, lastMessages: [] }, chatId);
 
     // Update in database
     await dbService.upsertChat({

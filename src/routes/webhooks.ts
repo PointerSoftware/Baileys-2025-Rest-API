@@ -3,7 +3,7 @@ import { body, param } from 'express-validator';
 import { handleValidationErrors, asyncHandler } from '../middleware/errorHandler';
 import { DatabaseService } from '../services/DatabaseService';
 import { WebhookService } from '../services/WebhookService';
-import { ApiResponse } from '../types/api';
+import { ApiResponse } from '../Types/api';
 
 const router = Router();
 const dbService = new DatabaseService();

@@ -1,7 +1,7 @@
 import axios, { AxiosResponse } from 'axios';
 import crypto from 'crypto';
 import { DatabaseService } from './DatabaseService';
-import { webhookLogger } from '../utils/apiLogger';
+import { webhookLogger } from '../Utils/apiLogger';
 
 export class WebhookService {
   private dbService: DatabaseService;
@@ -28,7 +28,7 @@ export class WebhookService {
 
       // Send to each webhook
       for (const webhook of relevantWebhooks) {
-        await this.deliverWebhook(webhook.id, webhook.url, event, payload, webhook.secret);
+        await this.deliverWebhook(webhook.id, webhook.url, event, payload, webhook.secret ?? undefined);
       }
     } catch (error) {
       webhookLogger.error('Error sending webhooks:', error);
@@ -228,7 +228,7 @@ export class WebhookService {
       .digest('hex');
   }
 
-  async verifyWebhookSignature(payload: string, signature: string, secret: string): boolean {
+  async verifyWebhookSignature(payload: string, signature: string, secret: string): Promise<boolean> {
     const expectedSignature = this.createSignature(payload, secret);
     return crypto.timingSafeEqual(
       Buffer.from(signature),

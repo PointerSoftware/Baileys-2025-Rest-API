@@ -13,22 +13,22 @@ import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
-import { logger, whatsappLogger } from '../utils/apiLogger';
+import { logger, whatsappLogger } from '../Utils/apiLogger';
 import { DatabaseService } from './DatabaseService';
 import { WebhookService } from './WebhookService';
-import { WhatsAppSession, SessionStatus } from '../types/api';
+import { WhatsAppSession, SessionStatus } from '../Types/api';
 
 export class WhatsAppService {
   private sessions: Map<string, WhatsAppSession> = new Map();
   private io: SocketIOServer;
   private dbService: DatabaseService;
   private webhookService: WebhookService;
-
+  private static retries = new Map<string, number>();
   constructor(io: SocketIOServer) {
     this.io = io;
     this.dbService = new DatabaseService();
     this.webhookService = new WebhookService();
-    
+
     // Ensure auth directory exists
     const authDir = join(process.cwd(), 'auth_sessions');
     if (!existsSync(authDir)) {
@@ -67,7 +67,29 @@ export class WhatsAppService {
     }
   }
 
+  private static shouldReconnect(sessionId: string) {
+    let attempts = WhatsAppService.retries.get(sessionId) ?? 0;
+    if (attempts < 5) {
+      attempts += 1;
+      WhatsAppService.retries.set(sessionId, attempts);
+      return true;
+    }
+    return false;
+  }
   private async initializeWhatsAppConnection(sessionId: string, usePairingCode = false) {
+
+    const session = this.sessions.get(sessionId);
+    const MAX_QR_RETRY = parseInt(process.env.MAX_QR_RETRY || '5', 10);
+
+    // Stop jika sudah melebihi batas retry QR
+    if (session && session.qrRetryCount !== undefined && session.qrRetryCount >= MAX_QR_RETRY) {
+      whatsappLogger.warn(`Not initializing WhatsApp connection for ${sessionId} because QR retry limit reached`);
+      session.status = SessionStatus.DISCONNECTED;
+      await this.updateSessionInDatabase(sessionId, { status: 'DISCONNECTED', qrCode: null });
+      this.emitSessionUpdate(sessionId);
+      return;
+    }
+
     try {
       const authDir = join(process.cwd(), 'auth_sessions', sessionId);
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
@@ -146,20 +168,32 @@ export class WhatsAppService {
   private async handleConnectionUpdate(sessionId: string, update: Partial<ConnectionState>) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-
+    const MAX_QR_RETRY = parseInt(process.env.MAX_QR_RETRY || '5', 10);
     const { connection, lastDisconnect, qr } = update;
 
     whatsappLogger.info(`Connection update for ${sessionId}:`, { connection, lastDisconnect: lastDisconnect?.error?.message });
 
+    // Inisialisasi counter QR jika belum ada
+    if (session.qrRetryCount === undefined) session.qrRetryCount = 0;
+
     if (qr) {
-      // Generate QR code
+      // Cek batas retry QR
+      if (session.qrRetryCount >= MAX_QR_RETRY) {
+        whatsappLogger.warn(`QR code retry limit reached for ${sessionId}`);
+        session.status = SessionStatus.DISCONNECTED;
+        await this.updateSessionInDatabase(sessionId, { status: 'DISCONNECTED', qrCode: null });
+        this.emitSessionUpdate(sessionId);
+        return;
+      }
+
       try {
         const qrCodeDataURL = await QRCode.toDataURL(qr);
         session.qrCode = qrCodeDataURL;
         session.status = SessionStatus.QR_REQUIRED;
-        await this.updateSessionInDatabase(sessionId, { 
+        session.qrRetryCount += 1; // Tambah counter setiap generate QR
+        await this.updateSessionInDatabase(sessionId, {
           status: 'QR_REQUIRED',
-          qrCode: qrCodeDataURL 
+          qrCode: qrCodeDataURL
         });
         this.emitSessionUpdate(sessionId);
       } catch (error) {
@@ -169,17 +203,15 @@ export class WhatsAppService {
 
     if (connection === 'close') {
       const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-      
+      const doNotReconnect = !WhatsAppService.shouldReconnect(sessionId);
       if (shouldReconnect) {
         whatsappLogger.info(`Reconnecting session ${sessionId}`);
         session.status = SessionStatus.CONNECTING;
         await this.updateSessionInDatabase(sessionId, { status: 'CONNECTING' });
         this.emitSessionUpdate(sessionId);
-        
-        // Reconnect after a delay
         setTimeout(() => {
           this.initializeWhatsAppConnection(sessionId);
-        }, 5000);
+        }, 3000);
       } else {
         whatsappLogger.info(`Session ${sessionId} logged out`);
         session.status = SessionStatus.DISCONNECTED;
@@ -192,8 +224,8 @@ export class WhatsAppService {
       session.lastSeen = new Date();
       session.qrCode = undefined;
       session.pairingCode = undefined;
-      
-      // Get user info
+      session.qrRetryCount = 0; // Reset counter jika berhasil konek
+
       const user = session.socket?.user;
       if (user) {
         session.phoneNumber = user.id.split(':')[0];
@@ -207,7 +239,6 @@ export class WhatsAppService {
         lastSeen: session.lastSeen,
         qrCode: null
       });
-      
       this.emitSessionUpdate(sessionId);
     }
   }
@@ -228,7 +259,7 @@ export class WhatsAppService {
           messageType: this.getMessageType(message.message),
           content: message.message,
           timestamp: new Date(message.messageTimestamp! * 1000),
-          quotedMessage: message.message?.extendedTextMessage?.contextInfo?.quotedMessage ? 
+          quotedMessage: message.message?.extendedTextMessage?.contextInfo?.quotedMessage ?
             message.message.extendedTextMessage.contextInfo.stanzaId : undefined,
           metadata: { type, pushName: message.pushName }
         });
@@ -257,7 +288,7 @@ export class WhatsAppService {
     for (const update of messageUpdates) {
       try {
         const { key, update: messageUpdate } = update;
-        
+
         if (messageUpdate.status) {
           await this.dbService.updateMessageStatus(
             key.id!,
@@ -421,10 +452,21 @@ export class WhatsAppService {
   }
 
   // Public methods for API endpoints
-  async getSession(sessionId: string): Promise<WhatsAppSession | undefined> {
-    return this.sessions.get(sessionId);
-  }
+  // async getSession(sessionId: string): Promise<WhatsAppSession | undefined> {
+  //   return this.sessions.get(sessionId);
+  // }
 
+  async getSession(sessionId: string): Promise<WhatsAppSession | undefined> {
+    const session = this.sessions.get(sessionId);
+    if (session && session.status === SessionStatus.DISCONNECTED) {
+      session.qrRetryCount = 0;
+      session.status = SessionStatus.CONNECTING;
+      await this.updateSessionInDatabase(sessionId, { status: 'QR_REQUIRED', qrCode: null });
+      this.emitSessionUpdate(sessionId);
+      await this.initializeWhatsAppConnection(sessionId);
+    }
+    return session;
+  }
   async getAllSessions(): Promise<WhatsAppSession[]> {
     return Array.from(this.sessions.values());
   }
@@ -432,7 +474,7 @@ export class WhatsAppService {
   async deleteSession(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (session?.socket) {
-      session.socket.end();
+      session.socket.end(undefined);
     }
     this.sessions.delete(sessionId);
     await this.dbService.deleteSession(sessionId);
@@ -447,12 +489,12 @@ export class WhatsAppService {
     const code = await session.socket.requestPairingCode(phoneNumber);
     session.pairingCode = code;
     session.phoneNumber = phoneNumber;
-    
+
     await this.updateSessionInDatabase(sessionId, {
       pairingCode: code,
       phoneNumber
     });
-    
+
     this.emitSessionUpdate(sessionId);
     return code;
   }
@@ -472,17 +514,17 @@ export class WhatsAppService {
 
   async shutdown(): Promise<void> {
     logger.info('Shutting down WhatsApp service...');
-    
+
     for (const [sessionId, session] of this.sessions) {
       if (session.socket) {
         try {
-          session.socket.end();
+          session.socket.end(undefined);
         } catch (error) {
           whatsappLogger.error(`Error closing session ${sessionId}:`, error);
         }
       }
     }
-    
+
     this.sessions.clear();
     await this.dbService.disconnect();
     logger.info('WhatsApp service shutdown complete');

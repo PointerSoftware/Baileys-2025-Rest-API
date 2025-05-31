@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { logger } from '../utils/apiLogger';
+import { logger } from '../Utils/apiLogger';
 
 export class DatabaseService {
   private prisma: PrismaClient;
@@ -28,7 +28,7 @@ export class DatabaseService {
 
     // Log database queries in development
     if (process.env.NODE_ENV === 'development') {
-      this.prisma.$on('query', (e) => {
+      this.prisma.$on('query', (e: { query: string; params: string; duration: number }) => {
         logger.debug({
           query: e.query,
           params: e.params,
@@ -37,24 +37,29 @@ export class DatabaseService {
       });
     }
 
-    this.prisma.$on('error', (e) => {
+    this.prisma.$on('error', (e: { target: string; message: string }) => {
       logger.error({
-        target: e.target,
-        message: e.message
+      target: e.target,
+      message: e.message
       }, 'Database Error');
     });
 
-    this.prisma.$on('info', (e) => {
+    this.prisma.$on('info', (e: { target: string; message: string }) => {
       logger.info({
-        target: e.target,
-        message: e.message
+      target: e.target,
+      message: e.message
       }, 'Database Info');
     });
 
-    this.prisma.$on('warn', (e) => {
+    interface PrismaWarnEvent {
+      target: string;
+      message: string;
+    }
+
+    this.prisma.$on('warn', (e: PrismaWarnEvent) => {
       logger.warn({
-        target: e.target,
-        message: e.message
+      target: e.target,
+      message: e.message
       }, 'Database Warning');
     });
   }
@@ -353,7 +358,7 @@ export class DatabaseService {
   }
 
   async getDashboardStats(userId?: string) {
-    const where = userId ? { userId } : {};
+    const where = userId ?? { userId: { not: null } } as any;
 
     const [
       totalSessions,
@@ -364,12 +369,12 @@ export class DatabaseService {
       apiCallsLast24h
     ] = await Promise.all([
       this.prisma.session.count({ where: { ...where, isActive: true } }),
-      this.prisma.session.count({ 
-        where: { 
-          ...where, 
-          isActive: true, 
-          status: 'CONNECTED' 
-        } 
+      this.prisma.session.count({
+        where: {
+          ...where,
+          isActive: true,
+          status: 'CONNECTED'
+        }
       }),
       this.prisma.message.count({ where }),
       this.prisma.message.count({

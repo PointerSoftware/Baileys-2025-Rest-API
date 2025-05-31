@@ -3,7 +3,7 @@ import { param } from 'express-validator';
 import { handleValidationErrors, asyncHandler } from '../middleware/errorHandler';
 import { sessionMiddleware } from '../middleware/auth';
 import { whatsAppService } from '../app';
-import { ApiResponse } from '../types/api';
+import { ApiResponse } from '../Types/api';
 
 const router = Router();
 
